@@ -8,6 +8,17 @@ services:
     tty: true
     stdin_open: true
 
+  tradingagents-server:
+    build:
+      context: .
+      target: server
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+
   ollama:
     image: ollama/ollama:latest
     volumes:
