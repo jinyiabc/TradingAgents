@@ -152,8 +152,16 @@ class OpenAIClient(BaseLLMClient):
             llm_kwargs["base_url"] = self.base_url or default_base
             if api_key_env:
                 api_key = os.environ.get(api_key_env)
-                if api_key:
-                    llm_kwargs["api_key"] = api_key
+                if not api_key:
+                    # Without an explicit api_key, ChatOpenAI silently reads
+                    # OPENAI_API_KEY from the env — so e.g. picking provider
+                    # 'deepseek' with DEEPSEEK_API_KEY unset would leak the
+                    # OpenAI key to api.deepseek.com. Fail loudly instead.
+                    raise RuntimeError(
+                        f"{api_key_env} is not set; provider '{self.provider}' "
+                        f"requires it."
+                    )
+                llm_kwargs["api_key"] = api_key
             else:
                 llm_kwargs["api_key"] = "ollama"
         elif self.base_url:
