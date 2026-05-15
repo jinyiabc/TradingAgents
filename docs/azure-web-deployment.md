@@ -161,9 +161,20 @@ Each milestone is a working, demoable state.
    - Next.js app under `web/`. Four pages from §5. Hardcode `NEXT_PUBLIC_API_BASE` to `http://localhost:8000`.
    - Manually run an end-to-end analysis through the UI against the local backend.
 
-3. **M3 — Azure infra (greenfield)**
-   - Bicep (or Terraform if preferred) under `infra/`: Resource Group, Storage Account + Files share, Container Apps Environment + Container App, Static Web App, Log Analytics.
-   - `azd up` (or `az deployment`) brings up the empty stack.
+3. **M3 — Azure infra (greenfield)** *(done)*
+   - Bicep under [`infra/`](../infra/): subscription-scope [`main.bicep`](../infra/main.bicep) creates the resource group; [`resources.bicep`](../infra/resources.bicep) orchestrates the modules — Log Analytics, Storage Account + Files share, Container Apps Environment (with the file-share storage attached), Container App for the FastAPI backend (volume-mounted at `/home/appuser/.tradingagents`, scale-to-zero, system-assigned identity, `/healthz` probes), and a Static Web App for the frontend.
+   - Deploy:
+     ```bash
+     cp infra/main.parameters.example.json infra/main.parameters.json
+     # edit the file: set provider API keys (or leave blank and add later)
+     az login
+     az deployment sub create \
+       --location eastus \
+       --template-file infra/main.bicep \
+       --parameters infra/main.parameters.json
+     ```
+   - Outputs: `backendFqdn`, `staticWebAppHostname`, `storageAccountName`.
+   - Nothing is exercised yet (no image pushed) — the backend will sit at scale-to-zero with `minReplicas=0` until M4 pushes the first revision.
 
 4. **M4 — Deploy backend**
    - GitHub Actions workflow: build server image, push to GHCR, update Container App. Mount Azure Files at `/root/.tradingagents`. Secrets wired to env vars.

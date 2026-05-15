@@ -1,0 +1,20 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "eastus" },
+    "namePrefix": { "value": "tradingagents" },
+    "environmentName": { "value": "prod" },
+    "containerImage": { "value": "ghcr.io/jinyiabc/tradingagents-server:latest" },
+    "minReplicas": { "value": 0 },
+    "maxReplicas": { "value": 1 },
+    "cpu": { "value": "1.0" },
+    "memory": { "value": "2.0Gi" },
+    "corsOrigins": { "value": "*" },
+    "openaiApiKey": { "value": "" },
+    "anthropicApiKey": { "value": "" },
+    "googleApiKey": { "value": "" },
+    "xaiApiKey": { "value": "" },
+    "deepseekApiKey": { "value": "" }
+  }
+}
