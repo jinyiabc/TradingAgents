@@ -8,6 +8,10 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ## [Unreleased]
 
+_(nothing yet)_
+
+## [0.3.0] — 2026-05-15
+
 ### Added — Web UI + Azure deployment path
 
 - **FastAPI backend** under `tradingagents.server`: `POST /analyses`,
