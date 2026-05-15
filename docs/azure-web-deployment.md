@@ -176,9 +176,36 @@ Each milestone is a working, demoable state.
    - Outputs: `backendFqdn`, `staticWebAppHostname`, `storageAccountName`.
    - Nothing is exercised yet (no image pushed) — the backend will sit at scale-to-zero with `minReplicas=0` until M4 pushes the first revision.
 
-4. **M4 — Deploy backend**
-   - GitHub Actions workflow: build server image, push to GHCR, update Container App. Mount Azure Files at `/root/.tradingagents`. Secrets wired to env vars.
-   - Hit the deployed `/healthz`; run one analysis via `curl`.
+4. **M4 — Deploy backend** *(workflow written; first deploy is owner-triggered)*
+   - [`.github/workflows/deploy-server.yml`](../.github/workflows/deploy-server.yml) runs on every push to `main` that touches the backend (or via manual dispatch). Stages:
+     1. `test` — installs the package and runs `pytest`.
+     2. `build-and-push` — multi-platform Docker build of the `server` target in [`Dockerfile`](../Dockerfile), pushes to `ghcr.io/<owner>/tradingagents-server:latest` and `:<sha12>`.
+     3. `deploy` — `azure/login@v2` via OIDC federated identity, then `az containerapp update --image ...` to roll a new revision.
+   - **One-time Azure OIDC setup** (do this once before triggering the workflow):
+     ```bash
+     # 1. Create the app registration that GitHub will federate as.
+     az ad app create --display-name tradingagents-deploy
+     APP_ID=$(az ad app list --display-name tradingagents-deploy --query '[0].appId' -o tsv)
+     az ad sp create --id $APP_ID
+
+     # 2. Federated credential for github.com/<owner>/<repo> on main branch.
+     az ad app federated-credential create --id $APP_ID --parameters '{
+       "name": "tradingagents-main",
+       "issuer": "https://token.actions.githubusercontent.com",
+       "subject": "repo:<owner>/<repo>:ref:refs/heads/main",
+       "audiences": ["api://AzureADTokenExchange"]
+     }'
+
+     # 3. Grant the service principal Contributor on the resource group.
+     RG_ID=$(az group show -n tradingagents-prod-rg --query id -o tsv)
+     az role assignment create --assignee $APP_ID --role Contributor --scope $RG_ID
+     ```
+     Then set these **repository secrets** in GitHub (Settings → Secrets and variables → Actions):
+     - `AZURE_CLIENT_ID` — the `$APP_ID` from above
+     - `AZURE_TENANT_ID` — `az account show --query tenantId -o tsv`
+     - `AZURE_SUBSCRIPTION_ID` — `az account show --query id -o tsv`
+   - First deploy: push to `main` (or use *Actions → deploy-server → Run workflow*). The image gets built, pushed to GHCR, and the Container App revision is replaced. Verify with `curl https://<backendFqdn>/healthz`.
+   - GHCR images are private by default; either keep them so (the Container App pulls via its system-assigned identity once you grant it `acrpull`-equivalent permission on the GHCR package), or flip the package visibility to public in GitHub for the simpler path.
 
 5. **M5 — Deploy frontend**
    - Static Web App Action wired to `web/`. Configure `API_BASE` to the Container App FQDN.
