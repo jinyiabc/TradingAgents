@@ -2,7 +2,10 @@
 
 Both handlers are duck-typed (no inheritance from BaseCallbackHandler) — the
 runtime calls whatever methods we define, and avoiding the import keeps this
-module light and free of langchain pinning.
+module light and free of langchain pinning. `_CallbackBase` declares the
+attributes LangChain's callback manager probes via `getattr` without a
+default (`ignore_*`, `raise_error`, `run_inline`); without them, recent
+langchain_core raises AttributeError mid-run from `handle_event`.
 """
 
 from __future__ import annotations
@@ -13,6 +16,18 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class _CallbackBase:
+    raise_error = False
+    run_inline = False
+    ignore_llm = False
+    ignore_chain = False
+    ignore_agent = False
+    ignore_retriever = False
+    ignore_chat_model = False
+    ignore_retry = False
+    ignore_custom_event = False
 
 
 # $/M tokens, (input, output). Approximate; for in-UI guidance, not billing.
@@ -45,7 +60,7 @@ _PRICING_USD_PER_MILLION: dict[str, tuple[float, float]] = {
 }
 
 
-class NodeProgressCallback:
+class NodeProgressCallback(_CallbackBase):
     """Writes the current LangGraph node name into the job's `current_step`
     column on each `on_chain_start`. The job-status page reads it on every
     3s poll to render live progress.
@@ -69,7 +84,7 @@ class NodeProgressCallback:
             logger.debug("set_current_step failed", exc_info=True)
 
 
-class TokenUsageCallback:
+class TokenUsageCallback(_CallbackBase):
     """Accumulates per-model token usage across every LLM completion in an
     analysis. `.totals()` returns the aggregate `(prompt_tokens,
     completion_tokens, estimated_cost_usd_or_None)` for writing into the

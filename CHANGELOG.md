@@ -10,6 +10,18 @@ Breaking changes within the 0.x line are called out explicitly.
 
 _(nothing yet)_
 
+## [0.3.1] — 2026-05-15
+
+### Fixed
+
+- **Server job runner crashes on `AttributeError: ignore_chain`**: recent
+  `langchain_core` reads `ignore_*` / `raise_error` / `run_inline` from
+  callback handlers via `getattr` without a default, so the duck-typed
+  `NodeProgressCallback` and `TokenUsageCallback` blew up inside
+  `on_chain_start`. Both handlers now inherit a `_CallbackBase` that
+  declares those attributes (still no `BaseCallbackHandler` import — the
+  module stays langchain-pin-free).
+
 ## [0.3.0] — 2026-05-15
 
 ### Added — Web UI + Azure deployment path
