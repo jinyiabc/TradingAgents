@@ -76,7 +76,7 @@ export default function HistoryPage() {
               {filtered.map((j) => (
                 <tr key={j.job_id}>
                   <td>
-                    <Link href={`/jobs/${j.job_id}`}>{j.ticker}</Link>
+                    <Link href={`/jobs?id=${j.job_id}`}>{j.ticker}</Link>
                   </td>
                   <td>{j.analysis_date}</td>
                   <td>
@@ -86,7 +86,7 @@ export default function HistoryPage() {
                   <td>{fmt(j.finished_at)}</td>
                   <td>
                     {j.status === "done" && (
-                      <Link href={`/jobs/${j.job_id}/report`}>Report</Link>
+                      <Link href={`/jobs/report?id=${j.job_id}`}>Report</Link>
                     )}
                   </td>
                 </tr>

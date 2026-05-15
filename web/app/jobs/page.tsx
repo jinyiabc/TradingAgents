@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { getJob, JobDetail } from "@/lib/api";
 
 const PIPELINE_STEPS = [
@@ -38,17 +39,15 @@ function elapsed(startIso?: string | null, endIso?: string | null): string {
   return `${m}m ${s}s`;
 }
 
-export default function JobStatusPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+function JobStatusInner() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") ?? "";
   const [job, setJob] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
   useEffect(() => {
+    if (!id) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -75,12 +74,23 @@ export default function JobStatusPage({
     };
   }, [id]);
 
-  // Tick once a second so the elapsed-time display stays live while running.
   useEffect(() => {
     if (!job || (job.status !== "queued" && job.status !== "running")) return;
     const t = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(t);
   }, [job]);
+
+  if (!id) {
+    return (
+      <>
+        <h1>Job</h1>
+        <p className="muted">
+          Missing <code>id</code> query parameter. Go back to{" "}
+          <Link href="/history">history</Link>.
+        </p>
+      </>
+    );
+  }
 
   if (!job && !error) {
     return <p className="muted">Loading…</p>;
@@ -158,7 +168,7 @@ export default function JobStatusPage({
 
       {job.status === "done" && (
         <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-          <Link href={`/jobs/${id}/report`}>
+          <Link href={`/jobs/report?id=${id}`}>
             <button className="primary">View report</button>
           </Link>
           <Link href="/">
@@ -174,5 +184,14 @@ export default function JobStatusPage({
         </p>
       )}
     </>
+  );
+}
+
+export default function JobStatusPage() {
+  // useSearchParams() requires a Suspense boundary for static export.
+  return (
+    <Suspense fallback={<p className="muted">Loading…</p>}>
+      <JobStatusInner />
+    </Suspense>
   );
 }

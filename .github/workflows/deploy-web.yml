@@ -1,0 +1,52 @@
+name: deploy-web
+
+# Build the Next.js frontend (static export) and deploy to Azure Static
+# Web Apps. The deployment token comes from the Static Web App created by
+# infra/main.bicep — grab it with:
+#   az staticwebapp secrets list \
+#     --name tradingagents-prod-web --resource-group tradingagents-prod-rg \
+#     --query properties.apiKey -o tsv
+# and store as repo secret AZURE_STATIC_WEB_APPS_API_TOKEN.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/deploy-web.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (static export)
+        env:
+          NEXT_PUBLIC_API_BASE: ${{ vars.NEXT_PUBLIC_API_BASE }}
+        run: npm run build
+
+      - name: Deploy to Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: web/out
+          skip_app_build: true
+          skip_api_build: true

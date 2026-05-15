@@ -1,15 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { use } from "react";
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { reportUrl } from "@/lib/api";
 
-export default function ReportPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+function ReportInner() {
+  const searchParams = useSearchParams();
+  const id = searchParams.get("id") ?? "";
+
+  if (!id) {
+    return (
+      <>
+        <h1>Report</h1>
+        <p className="muted">
+          Missing <code>id</code> query parameter.{" "}
+          <Link href="/history">See history</Link>.
+        </p>
+      </>
+    );
+  }
+
   return (
     <>
       <div
@@ -25,7 +36,7 @@ export default function ReportPage({
           {id.slice(0, 12)}…
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          <Link href={`/jobs/${id}`}>
+          <Link href={`/jobs?id=${id}`}>
             <button>Back to job</button>
           </Link>
           <a href={reportUrl(id)} target="_blank" rel="noopener noreferrer">
@@ -45,5 +56,13 @@ export default function ReportPage({
         title="Analysis report"
       />
     </>
+  );
+}
+
+export default function ReportPage() {
+  return (
+    <Suspense fallback={<p className="muted">Loading…</p>}>
+      <ReportInner />
+    </Suspense>
   );
 }

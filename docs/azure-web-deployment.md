@@ -207,9 +207,19 @@ Each milestone is a working, demoable state.
    - First deploy: push to `main` (or use *Actions → deploy-server → Run workflow*). The image gets built, pushed to GHCR, and the Container App revision is replaced. Verify with `curl https://<backendFqdn>/healthz`.
    - GHCR images are private by default; either keep them so (the Container App pulls via its system-assigned identity once you grant it `acrpull`-equivalent permission on the GHCR package), or flip the package visibility to public in GitHub for the simpler path.
 
-5. **M5 — Deploy frontend**
-   - Static Web App Action wired to `web/`. Configure `API_BASE` to the Container App FQDN.
-   - End-to-end run through the deployed UI.
+5. **M5 — Deploy frontend** *(workflow + static-export config done)*
+   - [`.github/workflows/deploy-web.yml`](../.github/workflows/deploy-web.yml) builds the Next.js app and pushes `web/out/` to the Static Web App via `Azure/static-web-apps-deploy@v1`.
+   - Required for static export: dynamic routes were refactored to query strings (`/jobs?id=…`, `/jobs/report?id=…`) so the whole frontend pre-renders. [`web/next.config.mjs`](../web/next.config.mjs) sets `output: "export"` and `trailingSlash: true`.
+   - **One-time setup**:
+     ```bash
+     # Fetch the SWA deployment token after Bicep creates the resource.
+     TOKEN=$(az staticwebapp secrets list \
+       --name tradingagents-prod-web \
+       --resource-group tradingagents-prod-rg \
+       --query properties.apiKey -o tsv)
+     ```
+     Then add the repo secret `AZURE_STATIC_WEB_APPS_API_TOKEN` (Settings → Secrets and variables → Actions) and the repo variable `NEXT_PUBLIC_API_BASE` (e.g. `https://tradingagents-prod-api.<region>.azurecontainerapps.io`).
+   - First deploy: push to `main` (or *Run workflow*); the SWA action uploads the static bundle.
 
 6. **M6 — Auth**
    - Easy Auth on the Container App + Azure AD app reg.

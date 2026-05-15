@@ -86,7 +86,7 @@ export default function NewAnalysisPage() {
         output_language: language,
       };
       const { job_id } = await createAnalysis(body);
-      router.push(`/jobs/${job_id}`);
+      router.push(`/jobs?id=${job_id}`);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : String(err));
       setSubmitting(false);
