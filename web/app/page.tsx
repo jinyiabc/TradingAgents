@@ -34,7 +34,7 @@ export default function NewAnalysisPage() {
     "news",
     "fundamentals",
   ]);
-  const [provider, setProvider] = useState("openai");
+  const [provider, setProvider] = useState("deepseek");
   const [quickModel, setQuickModel] = useState("");
   const [deepModel, setDeepModel] = useState("");
   const [maxDebate, setMaxDebate] = useState(1);
@@ -46,7 +46,7 @@ export default function NewAnalysisPage() {
       .then((opts) => {
         setOptions(opts);
         if (!opts.providers.includes(provider)) {
-          setProvider(opts.providers[0] ?? "openai");
+          setProvider(opts.providers[0] ?? "deepseek");
         }
       })
       .catch((e: Error) => setOptionsError(e.message));
@@ -166,11 +166,15 @@ export default function NewAnalysisPage() {
           </div>
           <div className="field">
             <label htmlFor="lang">Output language</label>
-            <input
+            <select
               id="lang"
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
-            />
+            >
+              <option value="English">English</option>
+              <option value="Chinese (Simplified)">简体中文</option>
+              <option value="Chinese (Traditional)">繁體中文</option>
+            </select>
           </div>
         </div>
 
