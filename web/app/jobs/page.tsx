@@ -5,13 +5,47 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createAnalysis, CreateAnalysisRequest, getJob, JobDetail } from "@/lib/api";
 
-const PIPELINE_STEPS = [
-  "Analyst Team",
-  "Research Debate",
-  "Trader",
-  "Risk Debate",
-  "Portfolio Manager",
+// Coarse-grained pipeline categories shown to the user, with the underlying
+// LangGraph node names that map onto each. The server writes the raw node
+// name into job.current_step (see tradingagents/server/_worker.py); we use
+// these maps to highlight the matching coarse step.
+const PIPELINE_STEPS: { label: string; nodes: string[] }[] = [
+  {
+    label: "Analyst Team",
+    nodes: [
+      "Market Analyst",
+      "Social Analyst",
+      "News Analyst",
+      "Fundamentals Analyst",
+    ],
+  },
+  {
+    label: "Research Debate",
+    nodes: ["Bull Researcher", "Bear Researcher", "Research Manager"],
+  },
+  { label: "Trader", nodes: ["Trader"] },
+  {
+    label: "Risk Debate",
+    nodes: [
+      "Risky Analyst",
+      "Safe Analyst",
+      "Neutral Analyst",
+      "Aggressive Debator",
+      "Conservative Debator",
+      "Neutral Debator",
+    ],
+  },
+  { label: "Portfolio Manager", nodes: ["Portfolio Manager", "Judge"] },
 ];
+
+function pipelineIndex(currentStep: string | null | undefined): number {
+  if (!currentStep) return -1;
+  return PIPELINE_STEPS.findIndex((s) =>
+    s.nodes.some(
+      (n) => n.toLowerCase() === currentStep.toLowerCase().trim(),
+    ),
+  );
+}
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -216,18 +250,44 @@ function JobStatusInner() {
       </div>
 
       <div className="card" style={{ marginTop: 16 }}>
-        <div className="muted" style={{ marginBottom: 8 }}>
-          Pipeline
+        <div
+          style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
+        >
+          <span className="muted">Pipeline</span>
+          {job.current_step && (
+            <span style={{ fontSize: 13 }}>
+              <span className="muted">at </span>
+              <strong>{job.current_step}</strong>
+            </span>
+          )}
         </div>
         <ol style={{ margin: 0, paddingLeft: 20 }}>
-          {PIPELINE_STEPS.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
+          {PIPELINE_STEPS.map((step, i) => {
+            const activeIdx = pipelineIndex(job.current_step);
+            const isActive = i === activeIdx;
+            const isPast = activeIdx >= 0 && i < activeIdx;
+            return (
+              <li
+                key={step.label}
+                style={{
+                  fontWeight: isActive ? 600 : 400,
+                  color: isActive
+                    ? "var(--accent)"
+                    : isPast
+                      ? "var(--muted)"
+                      : "var(--fg)",
+                }}
+              >
+                {step.label}
+              </li>
+            );
+          })}
         </ol>
-        <p className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
-          Per-step progress will appear here in a later iteration. For now the
-          job runs to completion as a single &ldquo;running&rdquo; phase.
-        </p>
       </div>
 
       {job.status === "failed" && (

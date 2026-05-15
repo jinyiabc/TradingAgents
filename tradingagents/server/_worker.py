@@ -19,9 +19,44 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import sys
 import traceback
 from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+class _NodeProgressCallback:
+    """LangChain BaseCallbackHandler that writes the current LangGraph node
+    name into the jobs SQLite row so polling clients see live progress.
+
+    Implemented as a duck-typed handler (no inheritance) — LangChain only
+    calls the methods we define, and avoiding the import keeps `_worker.py`
+    light when LangChain isn't strictly needed.
+    """
+
+    def __init__(self, db_path: Path, job_id: str) -> None:
+        self._db_path = db_path
+        self._job_id = job_id
+        # Import lazily so module import stays cheap.
+        from tradingagents.server.db import set_current_step
+
+        self._set = set_current_step
+
+    def on_chain_start(self, serialized: dict[str, Any], *_args: Any, **kwargs: Any) -> None:
+        # LangGraph tags node invocations with metadata.langgraph_node; that's
+        # the only way to distinguish "this is a real pipeline step the user
+        # cares about" from "this is an internal LangChain plumbing chain".
+        meta = kwargs.get("metadata") or {}
+        node = meta.get("langgraph_node")
+        if not node:
+            return
+        try:
+            self._set(self._db_path, self._job_id, str(node))
+        except Exception:  # noqa: BLE001 — telemetry must never fail the run
+            logger.debug("set_current_step failed", exc_info=True)
 
 
 def main() -> int:
@@ -37,6 +72,8 @@ def main() -> int:
     date_str = payload["analysis_date"]
     analysts = payload["analysts"]
     dotenv_path = payload.get("dotenv_path")
+    db_path = payload.get("db_path")
+    job_id = payload.get("job_id")
 
     # Load .env so the subprocess sees DEEPSEEK_API_KEY / OPENAI_API_KEY / etc.
     # without having to re-export them. Inherits from parent already, but this
@@ -60,7 +97,16 @@ def main() -> int:
         from tradingagents.graph.trading_graph import TradingAgentsGraph
         from tradingagents.report_writer import save_report_to_disk
 
-        graph = TradingAgentsGraph(selected_analysts=analysts, config=config)
+        progress_cbs = (
+            [_NodeProgressCallback(Path(db_path), job_id)]
+            if db_path and job_id
+            else None
+        )
+        graph = TradingAgentsGraph(
+            selected_analysts=analysts,
+            config=config,
+            graph_callbacks=progress_cbs,
+        )
         final_state, signal = graph.propagate(ticker, date_str)
 
         save_path = Path(config["results_dir"]) / ticker / date_str

@@ -56,6 +56,7 @@ class TradingAgentsGraph:
         debug=False,
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
+        graph_callbacks: Optional[List] = None,
     ):
         """Initialize the trading agents graph and components.
 
@@ -63,11 +64,17 @@ class TradingAgentsGraph:
             selected_analysts: List of analyst types to include
             debug: Whether to run in debug mode
             config: Configuration dictionary. If None, uses default config
-            callbacks: Optional list of callback handlers (e.g., for tracking LLM/tool stats)
+            callbacks: Optional list of callback handlers passed to the LLM
+                clients (fires on on_llm_start / on_llm_end / on_tool_start).
+            graph_callbacks: Optional list of callback handlers passed through
+                LangGraph's RunnableConfig (fires on on_chain_start /
+                on_chain_end at the node level — used by the web server to
+                track current_step in the jobs DB).
         """
         self.debug = debug
         self.config = config or DEFAULT_CONFIG
         self.callbacks = callbacks or []
+        self.graph_callbacks = graph_callbacks or []
 
         # Update the interface's config
         set_config(self.config)
@@ -307,7 +314,7 @@ class TradingAgentsGraph:
         init_agent_state = self.propagator.create_initial_state(
             company_name, trade_date, past_context=past_context
         )
-        args = self.propagator.get_graph_args()
+        args = self.propagator.get_graph_args(callbacks=self.graph_callbacks or None)
 
         # Inject thread_id so same ticker+date resumes, different date starts fresh.
         if self.config.get("checkpoint_enabled"):

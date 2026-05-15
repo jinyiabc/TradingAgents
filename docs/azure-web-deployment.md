@@ -263,7 +263,8 @@ Each milestone is a working, demoable state.
    - ✓ **Retry button on failed jobs** ([`web/app/jobs/page.tsx`](../web/app/jobs/page.tsx)) — re-POSTs the saved request config and redirects to the new `job_id`. Most relevant for the residual ~5–10% per-attempt failure rate from the LangChain/DeepSeek tool-call handshake.
    - ✓ **Friendlier error display** — exception type + message rendered prominently; the full traceback hides behind a `<details>` toggle.
    - ✓ **History page filters** ([`web/app/history/page.tsx`](../web/app/history/page.tsx)) — ticker, status, and analysis-date-range, applied client-side. Shows `N of M` count when any filter is active.
-   - Remaining: cost/run telemetry surfaced in the UI, per-step pipeline progress.
+   - ✓ **Per-step pipeline progress.** TradingAgentsGraph gained an optional `graph_callbacks` kwarg that threads through `propagator.get_graph_args(callbacks=…)`. The web worker installs a small handler that watches `on_chain_start` for messages with `metadata.langgraph_node` set, and writes that node name into the job's `current_step` column. The job-status page reads it on each 3s poll, displays it under the pipeline list, and highlights the matching coarse step (Analyst Team / Research Debate / Trader / Risk Debate / Portfolio Manager) in colour.
+   - Remaining: cost/run telemetry surfaced in the UI.
 
 ## 12. Open questions
 

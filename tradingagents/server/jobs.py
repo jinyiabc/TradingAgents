@@ -88,6 +88,10 @@ def _run_blocking(job_id: str, req: CreateAnalysisRequest, db_path: Path) -> Non
         "analysis_date": req.analysis_date.isoformat(),
         "analysts": list(req.analysts),
         "dotenv_path": _find_project_dotenv(),
+        # Worker uses these to write live current_step updates into the same
+        # jobs SQLite the parent is polling.
+        "db_path": str(db_path),
+        "job_id": job_id,
     }
 
     try:
