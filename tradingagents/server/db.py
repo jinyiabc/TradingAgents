@@ -60,7 +60,10 @@ def init_db(db_path: Path) -> None:
 def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(db_path, isolation_level=None)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # No WAL: when the DB lives on an SMB share (Azure Files), the WAL sidecar
+    # needs locking semantics SMB doesn't implement, and `PRAGMA journal_mode=WAL`
+    # fails with "database is locked". The default rollback journal works
+    # everywhere, and busy_timeout covers the single-writer/multi-reader case.
     conn.execute("PRAGMA busy_timeout=5000")
     try:
         yield conn
