@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { getJob, JobDetail } from "@/lib/api";
+import { useRouter, useSearchParams } from "next/navigation";
+import { createAnalysis, CreateAnalysisRequest, getJob, JobDetail } from "@/lib/api";
 
 const PIPELINE_STEPS = [
   "Analyst Team",
@@ -37,6 +37,79 @@ function elapsed(startIso?: string | null, endIso?: string | null): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}m ${s}s`;
+}
+
+function ErrorDisplay({ error }: { error: string }) {
+  // First non-empty line is usually the exception-type + message — surface it
+  // prominently; the traceback goes behind a toggle so the failure is
+  // legible at a glance.
+  const lines = error.split("\n").map((l) => l.trimEnd());
+  const summary = lines.find((l) => l.trim().length > 0) ?? "Unknown error";
+  const rest = error.slice(error.indexOf(summary) + summary.length).trimStart();
+  return (
+    <div>
+      <div className="error-box" style={{ fontFamily: "inherit", fontSize: 14 }}>
+        <strong>{summary}</strong>
+      </div>
+      {rest && (
+        <details style={{ marginTop: 6 }}>
+          <summary
+            style={{ cursor: "pointer", fontSize: 13, color: "var(--muted)" }}
+          >
+            Show traceback
+          </summary>
+          <pre
+            style={{
+              marginTop: 6,
+              padding: 12,
+              background: "var(--bg-soft)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              fontSize: 12,
+              overflowX: "auto",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {rest}
+          </pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function RetryButton({ config }: { config: Record<string, unknown> }) {
+  const router = useRouter();
+  const [retrying, setRetrying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const onRetry = async () => {
+    setRetrying(true);
+    setError(null);
+    try {
+      // The saved config field is exactly what was submitted, just stored
+      // loosely-typed in the DB; cast back to the request shape and re-POST.
+      const body = config as unknown as CreateAnalysisRequest;
+      const { job_id } = await createAnalysis(body);
+      router.push(`/jobs?id=${job_id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setRetrying(false);
+    }
+  };
+
+  return (
+    <>
+      <button className="primary" onClick={onRetry} disabled={retrying}>
+        {retrying ? "Retrying…" : "Retry"}
+      </button>
+      {error && (
+        <span className="muted" style={{ fontSize: 13, color: "var(--danger)" }}>
+          {error}
+        </span>
+      )}
+    </>
+  );
 }
 
 function JobStatusInner() {
@@ -157,12 +230,27 @@ function JobStatusInner() {
         </p>
       </div>
 
-      {job.status === "failed" && job.error && (
+      {job.status === "failed" && (
         <div style={{ marginTop: 16 }}>
           <div className="muted" style={{ marginBottom: 6 }}>
             Error
           </div>
-          <div className="error-box">{job.error}</div>
+          {job.error ? <ErrorDisplay error={job.error} /> : (
+            <div className="muted">No error details captured.</div>
+          )}
+          <div
+            style={{
+              marginTop: 12,
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+            }}
+          >
+            <RetryButton config={job.config} />
+            <Link href="/">
+              <button>New analysis</button>
+            </Link>
+          </div>
         </div>
       )}
 

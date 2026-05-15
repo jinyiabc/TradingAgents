@@ -259,8 +259,10 @@ Each milestone is a working, demoable state.
        --set-env-vars TRADINGAGENTS_CORS_ORIGINS=https://<static-web-app-hostname>
      ```
 
-7. **M7 — Polish**
-   - History page filters, retry button on failed jobs, friendlier error display, cost/run telemetry surfaced in the UI.
+7. **M7 — Polish** *(in progress)*
+   - ✓ **Retry button on failed jobs** ([`web/app/jobs/page.tsx`](../web/app/jobs/page.tsx)) — re-POSTs the saved request config and redirects to the new `job_id`. Most relevant for the residual ~5–10% per-attempt failure rate from the LangChain/DeepSeek tool-call handshake.
+   - ✓ **Friendlier error display** — exception type + message rendered prominently; the full traceback hides behind a `<details>` toggle.
+   - Remaining: history page filters (status, date-range), cost/run telemetry surfaced in the UI, per-step pipeline progress.
 
 ## 12. Open questions
 
