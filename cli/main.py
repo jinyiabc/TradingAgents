@@ -636,6 +636,56 @@ def get_analysis_date():
             )
 
 
+_HTML_STYLE = """
+:root { --fg:#1f2328; --muted:#57606a; --bg:#fff; --bg-soft:#f6f8fa;
+        --border:#d0d7de; --accent:#0969da; }
+* { box-sizing: border-box; }
+body { margin: 0 auto; max-width: 960px; padding: 32px 24px;
+       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+                    Arial, sans-serif;
+       font-size: 16px; line-height: 1.7; color: var(--fg); background: var(--bg); }
+h1, h2, h3, h4 { line-height: 1.25; margin-top: 1.6em; margin-bottom: 0.6em; }
+h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+h3 { font-size: 1.25em; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg-soft); padding: 0.15em 0.4em; border-radius: 4px;
+       font-size: 0.9em; }
+pre { background: var(--bg-soft); padding: 12px 16px; border-radius: 6px;
+      overflow-x: auto; }
+pre code { background: transparent; padding: 0; }
+blockquote { color: var(--muted); border-left: 4px solid var(--border);
+             padding: 0 1em; margin: 0 0 1em 0; }
+table { border-collapse: collapse; margin: 1em 0; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--border); padding: 6px 12px; }
+th { background: var(--bg-soft); }
+hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+.report-meta { color: var(--muted); font-size: 0.95em; margin-top: -0.5em; }
+"""
+
+
+def _render_report_html(md_text: str, title: str) -> str:
+    """Render the consolidated markdown report to a standalone HTML page."""
+    from markdown_it import MarkdownIt
+    from html import escape
+
+    md = MarkdownIt("commonmark", {"html": False, "linkify": True, "breaks": False}).enable("table")
+    body = md.render(md_text)
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n<head>\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        f"<title>{escape(title)}</title>\n"
+        f"<style>{_HTML_STYLE}</style>\n"
+        "</head>\n<body>\n"
+        f"{body}\n"
+        "</body>\n</html>\n"
+    )
+
+
 def save_report_to_disk(final_state, ticker: str, save_path: Path):
     """Save complete analysis report to disk with organized subfolders."""
     save_path.mkdir(parents=True, exist_ok=True)
@@ -721,8 +771,11 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
             sections.append(f"## V. Portfolio Manager Decision\n\n### Portfolio Manager\n{risk['judge_decision']}")
 
     # Write consolidated report
-    header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    (save_path / "complete_report.md").write_text(header + "\n\n".join(sections), encoding="utf-8")
+    title = f"Trading Analysis Report: {ticker}"
+    header = f"# {title}\n\nGenerated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    md_text = header + "\n\n".join(sections)
+    (save_path / "complete_report.md").write_text(md_text, encoding="utf-8")
+    (save_path / "complete_report.html").write_text(_render_report_html(md_text, title), encoding="utf-8")
     return save_path / "complete_report.md"
 
 
