@@ -54,14 +54,22 @@ export default function NewAnalysisPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reset model selections when provider changes (the previous models may not exist).
-  useEffect(() => {
-    setQuickModel("");
-    setDeepModel("");
-  }, [provider]);
-
   const quickModels = options?.models[provider]?.quick ?? [];
   const deepModels = options?.models[provider]?.deep ?? [];
+
+  // Auto-pick the first model for the current provider whenever options load
+  // or the provider changes. An empty model id means "use DEFAULT_CONFIG's
+  // deep_think_llm / quick_think_llm" on the server, which are hard-coded to
+  // OpenAI — so leaving the selects on "(provider default)" silently sent
+  // OpenAI model names to e.g. DeepSeek and 404'd. Defaulting to the first
+  // catalogued model makes the UI's behaviour match its label.
+  useEffect(() => {
+    if (quickModels.length > 0) setQuickModel(quickModels[0].value);
+    if (deepModels.length > 0) setDeepModel(deepModels[0].value);
+    // quickModels/deepModels are recomputed each render but are stable for a
+    // given (provider, options) pair, so this effectively keys on those.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider, options]);
 
   const toggleAnalyst = (a: AnalystKind) => {
     setAnalysts((prev) =>
@@ -174,7 +182,6 @@ export default function NewAnalysisPage() {
               value={quickModel}
               onChange={(e) => setQuickModel(e.target.value)}
             >
-              <option value="">(provider default)</option>
               {quickModels.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
@@ -189,7 +196,6 @@ export default function NewAnalysisPage() {
               value={deepModel}
               onChange={(e) => setDeepModel(e.target.value)}
             >
-              <option value="">(provider default)</option>
               {deepModels.map((m) => (
                 <option key={m.value} value={m.value}>
                   {m.label}
@@ -229,7 +235,7 @@ export default function NewAnalysisPage() {
         <button
           type="submit"
           className="primary"
-          disabled={submitting || analysts.length === 0}
+          disabled={submitting || analysts.length === 0 || !options}
           style={{ marginTop: 8 }}
         >
           {submitting ? "Submitting..." : "Start analysis"}

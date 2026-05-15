@@ -71,11 +71,29 @@ def _user_from_principal(principal: dict | None) -> dict:
     }
 
 
+def _load_project_dotenv() -> None:
+    """Best-effort load of a project-root .env into os.environ.
+
+    Existing env vars always win (override=False), so a key passed on the
+    command line still takes precedence over what's in the file. Silently
+    skipped if python-dotenv isn't installed or no .env is found.
+    """
+    try:
+        from dotenv import find_dotenv, load_dotenv
+    except ImportError:
+        return
+    path = find_dotenv(usecwd=True)
+    if path:
+        load_dotenv(path, override=False)
+
+
 def create_app(
     *,
     db_path: Path | None = None,
     max_concurrent_jobs: int | None = None,
 ) -> FastAPI:
+    _load_project_dotenv()
+
     db_path = db_path or _default_db_path()
     max_concurrent = max_concurrent_jobs or int(
         os.environ.get("TRADINGAGENTS_MAX_CONCURRENT_JOBS", "2")
