@@ -36,12 +36,15 @@ DEFAULT_CONFIG = {
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
     # Data vendor configuration
-    # Category-level configuration (default for all tools in category)
+    # Category-level configuration (default for all tools in category).
+    # TRADINGAGENTS_DATA_VENDOR overrides all four categories at once — useful
+    # when yfinance gets aggressive about per-IP rate-limits and you want to
+    # flip the whole stack to alpha_vantage without editing this file.
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        "core_stock_apis": os.getenv("TRADINGAGENTS_DATA_VENDOR", "yfinance"),
+        "technical_indicators": os.getenv("TRADINGAGENTS_DATA_VENDOR", "yfinance"),
+        "fundamental_data": os.getenv("TRADINGAGENTS_DATA_VENDOR", "yfinance"),
+        "news_data": os.getenv("TRADINGAGENTS_DATA_VENDOR", "yfinance"),
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
