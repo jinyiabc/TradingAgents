@@ -4,6 +4,13 @@ One JobRunner instance is held by the FastAPI app for the lifetime of the
 process. It owns the asyncio.Semaphore that caps concurrency, the path to the
 jobs SQLite DB, and the results directory.
 
+Each analysis runs in a *subprocess* (tradingagents.server._worker). yfinance
+holds a process-global YfData singleton and curl_cffi keeps C-level
+connection pools / TLS state; in a long-lived uvicorn worker those
+accumulate and reliably trip Yahoo's 429 even when fresh CLI processes from
+the same IP succeed at the same moment. Subprocess isolation is the cheapest
+way to give every analysis the same clean process state a CLI run has.
+
 Per-step status (LangGraph node name) is not tracked in M1 — jobs go
 queued -> running -> (done | failed). Per-node progress is a clean follow-up
 that drops in without changing the API surface.
@@ -12,18 +19,24 @@ that drops in without changing the API surface.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import traceback
+import os
+import subprocess
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.report_writer import save_report_to_disk
 from tradingagents.server import db
 from tradingagents.server.schemas import CreateAnalysisRequest
 
 logger = logging.getLogger(__name__)
+
+# Hard cap on a single analysis. Real runs are 3-8 min; 30 min covers
+# pathological retry loops without leaving zombie subprocesses forever.
+_WORKER_TIMEOUT_SECONDS = 1800
 
 
 def _build_config(req: CreateAnalysisRequest) -> dict[str, Any]:
@@ -40,32 +53,84 @@ def _build_config(req: CreateAnalysisRequest) -> dict[str, Any]:
     return cfg
 
 
+def _find_project_dotenv() -> str | None:
+    """Locate the project's .env so the subprocess can load it."""
+    try:
+        from dotenv import find_dotenv
+
+        path = find_dotenv(usecwd=True)
+        return path or None
+    except ImportError:
+        return None
+
+
 def _run_blocking(job_id: str, req: CreateAnalysisRequest, db_path: Path) -> None:
-    """Synchronous body — runs inside a thread via asyncio.to_thread."""
+    """Synchronous body — runs inside a thread via asyncio.to_thread.
+
+    Spawns a subprocess to do the actual analysis so yfinance and friends
+    get clean process state per run. The parent stays alive across all
+    analyses; only the worker is short-lived.
+    """
     db.mark_running(db_path, job_id)
 
     cfg = _build_config(req)
-    date_str = req.analysis_date.isoformat()
+    payload = {
+        "config": cfg,
+        "ticker": req.ticker,
+        "analysis_date": req.analysis_date.isoformat(),
+        "analysts": list(req.analysts),
+        "dotenv_path": _find_project_dotenv(),
+    }
 
     try:
-        # Lazy import: LangChain/LangGraph cold start is ~5s. Keeping it here
-        # means the FastAPI process boots fast and tests that don't run jobs
-        # don't pay the cost.
-        from tradingagents.graph.trading_graph import TradingAgentsGraph
-
-        graph = TradingAgentsGraph(selected_analysts=list(req.analysts), config=cfg)
-        final_state, _signal = graph.propagate(req.ticker, date_str)
-
-        save_path = Path(cfg["results_dir"]) / req.ticker / date_str
-        save_report_to_disk(final_state, req.ticker, save_path)
-
-        report_path = save_path / "complete_report.html"
-        db.mark_done(db_path, job_id, report_path=str(report_path))
-    except Exception as exc:  # noqa: BLE001 — surface any failure to the user
-        logger.exception("Job %s failed", job_id)
-        # Truncate so a long traceback doesn't blow up the DB row.
-        msg = f"{type(exc).__name__}: {exc}\n\n{traceback.format_exc()[-4000:]}"
+        result = subprocess.run(
+            [sys.executable, "-m", "tradingagents.server._worker"],
+            input=json.dumps(payload),
+            text=True,
+            capture_output=True,
+            timeout=_WORKER_TIMEOUT_SECONDS,
+            env=os.environ.copy(),
+        )
+    except subprocess.TimeoutExpired:
+        db.mark_failed(
+            db_path,
+            job_id,
+            error=f"analysis timed out after {_WORKER_TIMEOUT_SECONDS}s",
+        )
+        return
+    except Exception as exc:  # noqa: BLE001 — surface spawn errors
+        logger.exception("Job %s failed to spawn worker", job_id)
+        msg = f"{type(exc).__name__}: {exc}"
         db.mark_failed(db_path, job_id, error=msg)
+        return
+
+    # Parent stdout is the result JSON; stderr is the agent's chatter.
+    # On crash (non-zero exit, garbled stdout), surface whatever stderr we have.
+    stdout = (result.stdout or "").strip()
+    if not stdout:
+        err_tail = (result.stderr or "")[-2000:]
+        db.mark_failed(
+            db_path,
+            job_id,
+            error=f"worker exit {result.returncode}, no result on stdout\n\nstderr tail:\n{err_tail}",
+        )
+        return
+
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        err_tail = (result.stderr or "")[-2000:]
+        db.mark_failed(
+            db_path,
+            job_id,
+            error=f"worker returned non-JSON stdout (exit {result.returncode}):\n{stdout[:500]}\n\nstderr tail:\n{err_tail}",
+        )
+        return
+
+    if data.get("status") == "done":
+        db.mark_done(db_path, job_id, report_path=data["report_path"])
+    else:
+        db.mark_failed(db_path, job_id, error=data.get("error", "<no error message from worker>"))
 
 
 class JobRunner:
