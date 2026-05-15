@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import json
+import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+
+logger = logging.getLogger(__name__)
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.server import db
@@ -35,6 +41,36 @@ def _allowed_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
+def _parse_client_principal(header_value: str | None) -> dict | None:
+    """Decode the X-MS-CLIENT-PRINCIPAL header set by Container Apps Easy Auth.
+
+    The header is base64-encoded JSON; absence means the request is anonymous
+    (auth disabled, or the path is in excludedPaths). Returns None on either
+    absence or any decoding failure — we never want auth parsing to 500.
+    """
+    if not header_value:
+        return None
+    try:
+        decoded = base64.b64decode(header_value)
+        return json.loads(decoded)
+    except (binascii.Error, ValueError, json.JSONDecodeError):
+        logger.warning("Failed to decode X-MS-CLIENT-PRINCIPAL header", exc_info=True)
+        return None
+
+
+def _user_from_principal(principal: dict | None) -> dict:
+    """Pull display name and email out of the decoded principal."""
+    if not principal:
+        return {"authenticated": False}
+    claims = {c.get("typ"): c.get("val") for c in principal.get("claims") or []}
+    return {
+        "authenticated": True,
+        "name": claims.get("name") or claims.get("preferred_username"),
+        "email": claims.get("preferred_username") or claims.get("email"),
+        "provider": principal.get("auth_typ"),
+    }
+
+
 def create_app(
     *,
     db_path: Path | None = None,
@@ -46,11 +82,17 @@ def create_app(
     )
 
     app = FastAPI(title="TradingAgents API", version="1")
+    origins = _allowed_origins()
+    # Browsers reject `allow_credentials=True` together with allow_origins=["*"],
+    # so credentials are only enabled when CORS is restricted to specific
+    # origins. M6 requires this for the frontend to send Easy Auth cookies.
+    allow_credentials = origins != ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=_allowed_origins(),
+        allow_origins=origins,
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
+        allow_credentials=allow_credentials,
     )
 
     runner = JobRunner(db_path, max_concurrent_jobs=max_concurrent)
@@ -59,6 +101,13 @@ def create_app(
     @app.get("/healthz")
     def healthz() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/me")
+    def me(request: Request) -> dict:
+        principal = _parse_client_principal(
+            request.headers.get("X-MS-CLIENT-PRINCIPAL")
+        )
+        return _user_from_principal(principal)
 
     @app.get("/config/options", response_model=OptionsResponse)
     def options() -> OptionsResponse:

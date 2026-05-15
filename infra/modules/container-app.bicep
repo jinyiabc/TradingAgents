@@ -43,6 +43,10 @@ param xaiApiKey string
 @secure()
 param deepseekApiKey string
 
+@secure()
+@description('Azure AD client secret. Required only when authConfig is deployed (M6); empty otherwise.')
+param aadClientSecret string = ''
+
 resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: name
   location: location
@@ -72,6 +76,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
         { name: 'google-api-key', value: googleApiKey }
         { name: 'xai-api-key', value: xaiApiKey }
         { name: 'deepseek-api-key', value: deepseekApiKey }
+        // Slot is always present so flipping enableAuth=true doesn't require
+        // a separate Bicep deploy to add it. authConfigs/current references
+        // `aad-client-secret` by name.
+        { name: 'aad-client-secret', value: aadClientSecret }
       ]
     }
     template: {

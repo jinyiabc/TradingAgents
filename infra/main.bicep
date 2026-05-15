@@ -66,6 +66,22 @@ param xaiApiKey string = ''
 @description('DeepSeek API key. Leave empty if unused.')
 param deepseekApiKey string = ''
 
+@description('Enable Container Apps Easy Auth with Azure AD (M6). When true, AAD params must be set.')
+param enableAuth bool = false
+
+@description('AAD application (client) ID. Required when enableAuth=true.')
+param aadClientId string = ''
+
+@secure()
+@description('AAD application client secret. Required when enableAuth=true.')
+param aadClientSecret string = ''
+
+@description('AAD tenant ID. Defaults to the deploying subscription tenant.')
+param aadTenantId string = ''
+
+@description('Allowed audiences (comma-separated). Empty = anyone in the tenant.')
+param aadAllowedAudience string = ''
+
 var rgName = '${namePrefix}-${environmentName}-rg'
 
 resource rg 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -91,6 +107,11 @@ module resources 'resources.bicep' = {
     googleApiKey: googleApiKey
     xaiApiKey: xaiApiKey
     deepseekApiKey: deepseekApiKey
+    enableAuth: enableAuth
+    aadClientId: aadClientId
+    aadClientSecret: aadClientSecret
+    aadTenantId: empty(aadTenantId) ? subscription().tenantId : aadTenantId
+    aadAllowedAudience: aadAllowedAudience
   }
 }
 

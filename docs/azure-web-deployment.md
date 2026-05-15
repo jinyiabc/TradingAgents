@@ -221,9 +221,43 @@ Each milestone is a working, demoable state.
      Then add the repo secret `AZURE_STATIC_WEB_APPS_API_TOKEN` (Settings → Secrets and variables → Actions) and the repo variable `NEXT_PUBLIC_API_BASE` (e.g. `https://tradingagents-prod-api.<region>.azurecontainerapps.io`).
    - First deploy: push to `main` (or *Run workflow*); the SWA action uploads the static bundle.
 
-6. **M6 — Auth**
-   - Easy Auth on the Container App + Azure AD app reg.
-   - Frontend reads `/.auth/me` for identity.
+6. **M6 — Auth** *(done, deploy-gated)*
+   - Container Apps Easy Auth ([`infra/modules/container-app-auth.bicep`](../infra/modules/container-app-auth.bicep)) federates with Azure AD. Off by default — flip `enableAuth=true` plus the AAD params at deploy time.
+   - `excludedPaths` keeps `/healthz` reachable for Azure probes; everything else returns 401 to unauthenticated XHR (frontend then redirects to `/.auth/login/aad`).
+   - Backend exposes `/me` ([`tradingagents/server/app.py`](../tradingagents/server/app.py)) which decodes the `X-MS-CLIENT-PRINCIPAL` header Easy Auth injects. CORS auto-flips to `allow_credentials=True` when the configured origins list is non-wildcard.
+   - Frontend ([`web/lib/api.ts`](../web/lib/api.ts)) sends `credentials: "include"` on every fetch; the nav shows the signed-in user via [`web/components/UserBadge.tsx`](../web/components/UserBadge.tsx) and offers a `Sign out` link to `/.auth/logout`.
+   - **One-time AAD setup**:
+     ```bash
+     # Create the app registration.
+     az ad app create \
+       --display-name tradingagents-easyauth \
+       --web-redirect-uris "https://<backend-fqdn>/.auth/login/aad/callback"
+     APP_ID=$(az ad app list --display-name tradingagents-easyauth --query '[0].appId' -o tsv)
+     az ad sp create --id $APP_ID
+
+     # Generate a client secret valid for 1 year.
+     SECRET=$(az ad app credential reset --id $APP_ID --years 1 --query password -o tsv)
+
+     # Get tenant ID.
+     TENANT=$(az account show --query tenantId -o tsv)
+
+     # Re-deploy with auth enabled, passing the secret as a parameter.
+     az deployment sub create \
+       --location eastus \
+       --template-file infra/main.bicep \
+       --parameters infra/main.parameters.json \
+       --parameters enableAuth=true \
+                    aadClientId=$APP_ID \
+                    aadClientSecret=$SECRET \
+                    aadTenantId=$TENANT
+     ```
+     Restrict who can sign in by setting `aadAllowedAudience` to a comma-separated list, or use the AAD app reg's *Enterprise Application → Properties → Assignment required* setting plus user/group assignments.
+   - Also set the backend's CORS origins so `allow_credentials` engages:
+     ```bash
+     az containerapp update --name tradingagents-prod-api \
+       --resource-group tradingagents-prod-rg \
+       --set-env-vars TRADINGAGENTS_CORS_ORIGINS=https://<static-web-app-hostname>
+     ```
 
 7. **M7 — Polish**
    - History page filters, retry button on failed jobs, friendlier error display, cost/run telemetry surfaced in the UI.

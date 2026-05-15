@@ -42,6 +42,22 @@ param xaiApiKey string
 @secure()
 param deepseekApiKey string
 
+@description('When true, enable Container Apps Easy Auth with Azure AD (M6).')
+param enableAuth bool = false
+
+@description('AAD application (client) ID. Required when enableAuth=true.')
+param aadClientId string = ''
+
+@secure()
+@description('AAD application client secret. Required when enableAuth=true.')
+param aadClientSecret string = ''
+
+@description('AAD tenant ID. Defaults to the deploying subscription tenant.')
+param aadTenantId string = subscription().tenantId
+
+@description('Allowed audiences (comma-separated). Empty = anyone in the tenant.')
+param aadAllowedAudience string = ''
+
 var resourceToken = uniqueString(resourceGroup().id, namePrefix, environmentName)
 var fileShareName = 'tradingagents-data'
 
@@ -97,6 +113,17 @@ module backend 'modules/container-app.bicep' = {
     googleApiKey: googleApiKey
     xaiApiKey: xaiApiKey
     deepseekApiKey: deepseekApiKey
+    aadClientSecret: aadClientSecret
+  }
+}
+
+module backendAuth 'modules/container-app-auth.bicep' = if (enableAuth) {
+  name: 'backend-auth'
+  params: {
+    containerAppName: backend.outputs.name
+    aadClientId: aadClientId
+    aadTenantId: aadTenantId
+    allowedAudience: aadAllowedAudience
   }
 }
 

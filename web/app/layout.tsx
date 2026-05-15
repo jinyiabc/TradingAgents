@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import UserBadge from "@/components/UserBadge";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,6 +22,9 @@ export default function RootLayout({
           </Link>
           <Link href="/">New analysis</Link>
           <Link href="/history">History</Link>
+          <span style={{ marginLeft: "auto" }}>
+            <UserBadge />
+          </span>
         </nav>
         <main className="layout">{children}</main>
       </body>
