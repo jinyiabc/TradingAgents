@@ -262,7 +262,8 @@ Each milestone is a working, demoable state.
 7. **M7 — Polish** *(in progress)*
    - ✓ **Retry button on failed jobs** ([`web/app/jobs/page.tsx`](../web/app/jobs/page.tsx)) — re-POSTs the saved request config and redirects to the new `job_id`. Most relevant for the residual ~5–10% per-attempt failure rate from the LangChain/DeepSeek tool-call handshake.
    - ✓ **Friendlier error display** — exception type + message rendered prominently; the full traceback hides behind a `<details>` toggle.
-   - Remaining: history page filters (status, date-range), cost/run telemetry surfaced in the UI, per-step pipeline progress.
+   - ✓ **History page filters** ([`web/app/history/page.tsx`](../web/app/history/page.tsx)) — ticker, status, and analysis-date-range, applied client-side. Shows `N of M` count when any filter is active.
+   - Remaining: cost/run telemetry surfaced in the UI, per-step pipeline progress.
 
 ## 12. Open questions
 
