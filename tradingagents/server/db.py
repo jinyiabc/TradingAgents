@@ -37,10 +37,23 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# Columns added after the initial schema shipped. Each tuple is
+# (column_name, SQL type). init_db idempotently ADDs anything missing.
+_LATER_COLUMNS: list[tuple[str, str]] = [
+    ("prompt_tokens", "INTEGER"),
+    ("completion_tokens", "INTEGER"),
+    ("estimated_cost_usd", "REAL"),
+]
+
+
 def init_db(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with _connect(db_path) as conn:
         conn.executescript(_SCHEMA)
+        existing = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+        for col, sql_type in _LATER_COLUMNS:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {sql_type}")
 
 
 @contextmanager
@@ -127,4 +140,26 @@ def set_current_step(db_path: Path, job_id: str, step: str) -> None:
         conn.execute(
             "UPDATE jobs SET current_step=? WHERE job_id=?",
             (step, job_id),
+        )
+
+
+def set_telemetry(
+    db_path: Path,
+    job_id: str,
+    *,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    estimated_cost_usd: float | None,
+) -> None:
+    """Record aggregate LLM usage + cost estimate for a finished job."""
+    with _connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE jobs
+               SET prompt_tokens = ?,
+                   completion_tokens = ?,
+                   estimated_cost_usd = ?
+             WHERE job_id = ?
+            """,
+            (prompt_tokens, completion_tokens, estimated_cost_usd, job_id),
         )

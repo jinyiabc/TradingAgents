@@ -264,7 +264,7 @@ Each milestone is a working, demoable state.
    - ✓ **Friendlier error display** — exception type + message rendered prominently; the full traceback hides behind a `<details>` toggle.
    - ✓ **History page filters** ([`web/app/history/page.tsx`](../web/app/history/page.tsx)) — ticker, status, and analysis-date-range, applied client-side. Shows `N of M` count when any filter is active.
    - ✓ **Per-step pipeline progress.** TradingAgentsGraph gained an optional `graph_callbacks` kwarg that threads through `propagator.get_graph_args(callbacks=…)`. The web worker installs a small handler that watches `on_chain_start` for messages with `metadata.langgraph_node` set, and writes that node name into the job's `current_step` column. The job-status page reads it on each 3s poll, displays it under the pipeline list, and highlights the matching coarse step (Analyst Team / Research Debate / Trader / Risk Debate / Portfolio Manager) in colour.
-   - Remaining: cost/run telemetry surfaced in the UI.
+   - ✓ **Cost / runtime telemetry.** Worker installs a `_TokenUsageCallback` alongside the step callback; it tallies `on_llm_end` token usage per model. Aggregated `(prompt_tokens, completion_tokens, estimated_cost_usd)` is written to the jobs DB after the run (success or failure) via a new `set_telemetry()` helper. The jobs table gains three nullable columns (schema migration is idempotent in `init_db`), the API returns them in `JobDetail`, and the frontend renders `Tokens: 12.3k in · 4.5k out · Est. cost: $0.0234`. Cost is shown only when every model used is in the small pricing table — partial estimates would mislead.
 
 ## 12. Open questions
 

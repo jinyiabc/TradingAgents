@@ -186,6 +186,9 @@ def create_app(
             started_at=row.get("started_at"),
             finished_at=row.get("finished_at"),
             config=row["config"],
+            prompt_tokens=row.get("prompt_tokens"),
+            completion_tokens=row.get("completion_tokens"),
+            estimated_cost_usd=row.get("estimated_cost_usd"),
         )
 
     @app.get("/analyses/{job_id}/report")

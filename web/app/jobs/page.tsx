@@ -62,6 +62,13 @@ function fmt(iso?: string | null): string {
   }
 }
 
+function formatTokens(n?: number | null): string {
+  if (n == null) return "—";
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
 function elapsed(startIso?: string | null, endIso?: string | null): string {
   if (!startIso) return "—";
   const start = new Date(startIso).getTime();
@@ -244,6 +251,21 @@ function JobStatusInner() {
             <>
               <span className="muted">Current step</span>
               <span>{job.current_step}</span>
+            </>
+          )}
+          {(job.prompt_tokens != null || job.completion_tokens != null) && (
+            <>
+              <span className="muted">Tokens</span>
+              <span>
+                {formatTokens(job.prompt_tokens)} in ·{" "}
+                {formatTokens(job.completion_tokens)} out
+              </span>
+            </>
+          )}
+          {job.estimated_cost_usd != null && (
+            <>
+              <span className="muted">Est. cost</span>
+              <span>${job.estimated_cost_usd.toFixed(4)}</span>
             </>
           )}
         </div>

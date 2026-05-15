@@ -30,6 +30,9 @@ export interface JobDetail extends JobSummary {
   report_url?: string | null;
   started_at?: string | null;
   config: Record<string, unknown>;
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  estimated_cost_usd?: number | null;
 }
 
 export interface ModelOption {

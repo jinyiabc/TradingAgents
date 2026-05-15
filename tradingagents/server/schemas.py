@@ -44,6 +44,9 @@ class JobDetail(JobSummary):
     report_url: str | None = None
     started_at: str | None = None
     config: dict[str, Any]
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    estimated_cost_usd: float | None = None
 
 
 class OptionsResponse(BaseModel):
