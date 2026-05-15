@@ -77,7 +77,7 @@ New package: `tradingagents/server/`. Existing CLI in `cli/` untouched.
 2. Background runner acquires the concurrency semaphore (cap = 2 by default), updates status to `running`, then iterates `graph.stream(...)` instead of `propagate(...)`. After each yielded node, it writes the node name and updated state-progress to `jobs.sqlite`.
 3. On normal completion: status → `done`, `report_url` set to `/analyses/{id}/report`.
 4. On exception: status → `failed`, `error` captures message + truncated traceback.
-5. **Checkpointing is forced on for the web service** (`config["checkpoint_enabled"] = True`) so a container restart mid-run resumes from the last node when the job is retried. (Auto-retry is out of scope for v1; we expose a "retry" button in the UI.)
+5. **Checkpointing is currently disabled** (`config["checkpoint_enabled"] = False`, see [jobs.py](../tradingagents/server/jobs.py) `_build_config`). Originally on for crash-recovery, but the LangChain/DeepSeek tool-call handshake fails on Market Analyst's first turn often enough that LangGraph regularly persists an assistant message with `tool_calls` whose tool responses didn't all land. Resuming from that poisoned state 400s deterministically on DeepSeek's "insufficient tool messages" check, converting a single transient flake into an unrecoverable loop. Until the upstream handshake is fixed, each run is independent; a crashed analysis is lost and resubmitted from scratch.
 
 ### 4.3 Concurrency
 

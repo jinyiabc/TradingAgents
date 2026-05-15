@@ -49,7 +49,15 @@ def _build_config(req: CreateAnalysisRequest) -> dict[str, Any]:
     cfg["max_debate_rounds"] = req.max_debate_rounds
     cfg["max_risk_discuss_rounds"] = req.max_risk_discuss_rounds
     cfg["output_language"] = req.output_language
-    cfg["checkpoint_enabled"] = True  # design §4.2: crash-recovery for the web service
+    # Originally True (design §4.2: container-restart recovery). Empirically
+    # the LangChain/DeepSeek tool-call handshake fails on Market Analyst's
+    # first turn ~50% of the time, and when that happens mid-batch LangGraph
+    # persists an assistant message with `tool_calls` but no matching `tool`
+    # responses. Subsequent runs resume from that poisoned state and 400
+    # deterministically on DeepSeek's "insufficient tool messages" check —
+    # turning one transient flake into an unrecoverable loop. Until the
+    # upstream handshake is sturdier, treat each run as independent.
+    cfg["checkpoint_enabled"] = False
     return cfg
 
 
