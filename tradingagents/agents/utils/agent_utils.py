@@ -1,4 +1,11 @@
-from langchain_core.messages import HumanMessage, RemoveMessage
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+
+logger = logging.getLogger(__name__)
 
 # Import tools from separate utility files
 from tradingagents.agents.utils.core_stock_tools import (
@@ -56,6 +63,61 @@ def create_msg_delete():
         return {"messages": removal_operations + [placeholder]}
 
     return delete_messages
+
+
+def _strip_dangling_tool_calls(messages: list) -> list:
+    """Return a new message list where any AIMessage with tool_calls whose IDs
+    don't all have matching ToolMessages downstream has those orphan tool_calls
+    removed (content preserved).
+
+    The DeepSeek tool-call handshake intermittently leaves the conversation in
+    a state where an assistant message references tool_call_ids that never get
+    answered. Sending that history back to DeepSeek triggers a 400 with
+    "insufficient tool messages following tool_calls". Stripping the orphans
+    lets the next LLM turn replay the work without rejecting the history.
+    """
+    tool_msg_ids = {
+        m.tool_call_id for m in messages
+        if isinstance(m, ToolMessage) and getattr(m, "tool_call_id", None)
+    }
+    repaired = []
+    for m in messages:
+        if isinstance(m, AIMessage) and getattr(m, "tool_calls", None):
+            kept = [tc for tc in m.tool_calls if tc.get("id") in tool_msg_ids]
+            if len(kept) != len(m.tool_calls):
+                # Pydantic-style copy that preserves content + metadata.
+                m = m.model_copy(update={"tool_calls": kept})
+        repaired.append(m)
+    return repaired
+
+
+def invoke_with_tool_call_repair(chain: Any, messages: list, *, max_retries: int = 1) -> Any:
+    """Invoke a chain on a message history; on DeepSeek's "insufficient tool
+    messages" 400, strip dangling tool_calls and retry.
+
+    The bug is upstream in the DeepSeek + langchain-openai tool-call handshake
+    (see docs/azure-web-deployment.md §11). Until that's solid, this guard
+    converts a deterministic 400 on a malformed history into a successful
+    retry on a sanitised one. Other API errors propagate.
+    """
+    # Lazy import so this module doesn't pull in `openai` at top-level.
+    from openai import BadRequestError
+
+    for attempt in range(max_retries + 1):
+        try:
+            return chain.invoke(messages)
+        except BadRequestError as exc:
+            text = str(exc).lower()
+            if "insufficient tool messages" not in text and "tool_calls" not in text:
+                raise
+            if attempt >= max_retries:
+                raise
+            logger.warning(
+                "DeepSeek 400 on tool_calls handshake; stripping orphans and retrying (%d/%d)",
+                attempt + 1,
+                max_retries,
+            )
+            messages = _strip_dangling_tool_calls(messages)
 
 
         
