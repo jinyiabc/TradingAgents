@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+## [Unreleased]
+
+### Added — Web UI + Azure deployment path
+
+- **FastAPI backend** under `tradingagents.server`: `POST /analyses`,
+  `GET /analyses[/{id}[/report]]`, `/healthz`, `/config/options`, `/me`.
+  In-process job runner with `asyncio.Semaphore(2)`; SQLite jobs table
+  at `~/.tradingagents/web/jobs.sqlite`. Auto-loads `.env` for provider
+  keys on startup. `tradingagents-server` script entry point.
+- **Next.js 15 frontend** under `web/`: New Analysis form, polling job
+  status with **per-step pipeline progress + token usage + cost
+  estimate**, history page with ticker/status/date-range filters,
+  embedded HTML report viewer, retry button on failed jobs. Built as
+  a fully static export for Azure Static Web Apps.
+- **Bicep IaC** under `infra/`: subscription-scope deploy that creates
+  Resource Group, Log Analytics, Storage Account + Azure Files share,
+  Container Apps Environment, Container App (scale-to-zero) for the
+  backend, and Static Web App for the frontend. Container Apps Easy
+  Auth (Azure AD) wired and gated behind a single `enableAuth` flag.
+- **GitHub Actions workflows** for both backend (Docker → GHCR →
+  Container App revision) and frontend (Next.js build → Static Web
+  Apps). OIDC federated identity, no long-lived secrets.
+- **Documentation**: [`docs/web-quickstart.md`](docs/web-quickstart.md),
+  [`docs/azure-deploy-guide.md`](docs/azure-deploy-guide.md),
+  [`docs/azure-web-deployment.md`](docs/azure-web-deployment.md).
+- **HTML report output**: every analysis now writes
+  `complete_report.html` alongside `complete_report.md`. Used by both
+  CLI and web report viewer.
+- **`tradingagents-server` CLI entry point** for serving the backend.
+
+### Fixed
+
+- **Silent OPENAI_API_KEY fallback**: when picking a non-OpenAI
+  provider with the corresponding `*_API_KEY` env var unset, the
+  underlying `ChatOpenAI` constructor would fall back to reading
+  `OPENAI_API_KEY` and silently send it to e.g. `api.deepseek.com`.
+  Now raises a clear `RuntimeError` naming the missing variable.
+- **LangChain/DeepSeek tool-call handshake flake**: analysts now wrap
+  `chain.invoke` in `invoke_with_tool_call_repair`, which strips
+  dangling `tool_calls` from the conversation history and retries once
+  on DeepSeek's "insufficient tool messages" 400. Pushes Market
+  Analyst per-attempt success rate from ≈50% to ≈95%.
+- **Anchored `.gitignore` patterns** (`/lib/`, `/lib64/`) so they no
+  longer silently swallow `web/lib/` and friends.
+
+### Changed
+
+- **Web service runs analyses in-process** rather than per-analysis
+  subprocesses. The earlier subprocess refactor was solving a
+  non-problem (Agent A's matrix proved yfinance state wasn't the
+  cause of the 429s; the real culprit was the tool-call handshake);
+  in-process saves ~3–5s startup per job.
+- **`checkpoint_enabled` defaults to `False` in the web service**.
+  Mid-run failures used to persist a half-written tool-call message,
+  poisoning resumes with deterministic 400s. Each web run is now
+  independent; a crashed analysis is resubmitted from scratch.
+- **`TRADINGAGENTS_DATA_VENDOR` env override**: flips all four
+  `data_vendors` categories at once (e.g. `alpha_vantage`) without
+  editing `default_config.py`. Useful when yfinance gets aggressive
+  about per-IP throttling.
+
 ## [0.2.4] — 2026-04-25
 
 ### Added

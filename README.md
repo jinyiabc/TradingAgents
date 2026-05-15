@@ -220,6 +220,31 @@ print(decision)
 
 See `tradingagents/default_config.py` for all configuration options.
 
+## Web UI
+
+There's an optional web frontend for running and reviewing analyses in a
+browser instead of the CLI: FastAPI backend, Next.js frontend, live
+per-step progress + token-usage + cost telemetry on each job.
+
+```bash
+pip install -e '.[server]'                 # adds fastapi + uvicorn
+
+# Backend (terminal A)
+TRADINGAGENTS_CORS_ORIGINS=http://localhost:3000 tradingagents-server
+
+# Frontend (terminal B)
+cd web && npm install && npm run dev
+# open http://localhost:3000
+```
+
+Full local walkthrough — including health checks, the common
+`.next` cache fix, CORS rationale, and an alias snippet — is in
+[docs/web-quickstart.md](docs/web-quickstart.md). For the Azure
+deployment recipe (Bicep + GitHub Actions + OIDC), see
+[docs/azure-deploy-guide.md](docs/azure-deploy-guide.md); the
+architecture and milestone log are in
+[docs/azure-web-deployment.md](docs/azure-web-deployment.md).
+
 ## Persistence and Recovery
 
 TradingAgents persists two kinds of state across runs.
