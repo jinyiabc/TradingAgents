@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
+import shutil
 import traceback
 import uuid
 from pathlib import Path
@@ -101,10 +101,51 @@ def _run_blocking(job_id: str, req: CreateAnalysisRequest, db_path: Path) -> Non
 
 
 class JobRunner:
-    def __init__(self, db_path: Path, max_concurrent_jobs: int = 2) -> None:
+    """Owns the jobs SQLite DB and the asyncio semaphore for concurrency.
+
+    Supports an optional *snapshot* path: the runtime DB lives somewhere fast
+    (e.g. /tmp/jobs.sqlite when the share can't host SQLite locks), and every
+    ``snapshot_interval_seconds`` we copy a consistent backup to a durable
+    location (e.g. Azure Files mount). On startup we restore the runtime DB
+    from the snapshot if present, so history survives container restarts.
+    """
+
+    def __init__(
+        self,
+        db_path: Path,
+        max_concurrent_jobs: int = 2,
+        *,
+        persist_path: Path | None = None,
+        snapshot_interval_seconds: float = 30.0,
+    ) -> None:
         self.db_path = db_path
+        self.persist_path = (
+            persist_path if persist_path and persist_path != db_path else None
+        )
+        self.snapshot_interval_seconds = snapshot_interval_seconds
         self.semaphore = asyncio.Semaphore(max_concurrent_jobs)
         self._tasks: set[asyncio.Task[None]] = set()
+        self._snapshot_task: asyncio.Task[None] | None = None
+
+        # Best-effort restore before init_db so a fresh container picks up
+        # the last snapshotted state. init_db's idempotent migration handles
+        # the case where the snapshot's schema is one revision behind.
+        if self.persist_path and self.persist_path.exists() and self.persist_path.stat().st_size > 0:
+            try:
+                self.db_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(self.persist_path, self.db_path)
+                logger.info(
+                    "Restored jobs DB from snapshot %s (%d bytes)",
+                    self.persist_path,
+                    self.persist_path.stat().st_size,
+                )
+            except OSError:
+                logger.warning(
+                    "Could not restore jobs DB from %s; starting fresh",
+                    self.persist_path,
+                    exc_info=True,
+                )
+
         db.init_db(db_path)
 
     async def _run(self, job_id: str, req: CreateAnalysisRequest) -> None:
@@ -124,3 +165,39 @@ class JobRunner:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return job_id
+
+    # ----- snapshot lifecycle --------------------------------------------------
+
+    async def start_snapshot_task(self) -> None:
+        """Kick off the background snapshot loop. No-op when persist_path is
+        unset (local dev) — runtime and snapshot are the same file."""
+        if self.persist_path is None or self._snapshot_task is not None:
+            return
+        self._snapshot_task = asyncio.create_task(self._snapshot_loop())
+
+    async def stop_snapshot_task(self) -> None:
+        """Cancel the periodic loop and take one final synchronous snapshot
+        so the very last writes get persisted before the container exits."""
+        if self._snapshot_task is not None:
+            self._snapshot_task.cancel()
+            try:
+                await self._snapshot_task
+            except asyncio.CancelledError:
+                pass
+            self._snapshot_task = None
+        if self.persist_path is not None:
+            try:
+                await asyncio.to_thread(db.snapshot_db, self.db_path, self.persist_path)
+            except Exception:  # noqa: BLE001
+                logger.warning("final snapshot failed", exc_info=True)
+
+    async def _snapshot_loop(self) -> None:
+        assert self.persist_path is not None
+        while True:
+            try:
+                await asyncio.sleep(self.snapshot_interval_seconds)
+                await asyncio.to_thread(db.snapshot_db, self.db_path, self.persist_path)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 — never crash the loop on transient errors
+                logger.warning("periodic snapshot failed", exc_info=True)

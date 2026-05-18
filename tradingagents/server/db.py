@@ -146,6 +146,30 @@ def set_current_step(db_path: Path, job_id: str, step: str) -> None:
         )
 
 
+def snapshot_db(src: Path, dst: Path) -> None:
+    """Take a consistent point-in-time copy of the jobs DB via SQLite's
+    backup API.
+
+    Used by the web service to copy a fast ephemeral DB (e.g. /tmp/) onto a
+    durable but lock-hostile Azure Files SMB share. The backup API is safe
+    to call while writers are active — it takes a B-tree page-level snapshot
+    without blocking ongoing transactions. The destination is a plain file
+    written byte-by-byte, so no fcntl locks are involved on dst.
+
+    Parent of ``dst`` is created if missing.
+    """
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src_conn = sqlite3.connect(src)
+    try:
+        dst_conn = sqlite3.connect(dst)
+        try:
+            src_conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+    finally:
+        src_conn.close()
+
+
 def set_telemetry(
     db_path: Path,
     job_id: str,

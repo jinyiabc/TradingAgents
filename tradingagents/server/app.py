@@ -34,6 +34,25 @@ def _default_db_path() -> Path:
     return Path.home() / ".tradingagents" / "web" / "jobs.sqlite"
 
 
+def _default_persist_db_path() -> Path | None:
+    """Where to snapshot the runtime jobs DB for durability.
+
+    Used on Azure: the runtime DB lives at ``/tmp/...`` (ephemeral, no SMB
+    locks) and we periodically copy a consistent backup to a path on the
+    Azure Files mount so history survives container restarts.
+
+    Defaults to ``~/.tradingagents/web/jobs.sqlite`` (the typical mount
+    target). Empty env value opts out entirely; an explicit non-empty value
+    overrides. Returns the runtime path itself when runtime is already on
+    the share — JobRunner detects that and skips snapshotting."""
+    explicit = os.environ.get("TRADINGAGENTS_WEB_PERSIST_DIR")
+    if explicit is not None:
+        if explicit == "":
+            return None  # explicit opt-out
+        return Path(explicit) / "jobs.sqlite"
+    return Path.home() / ".tradingagents" / "web" / "jobs.sqlite"
+
+
 def _allowed_origins() -> list[str]:
     raw = os.environ.get("TRADINGAGENTS_CORS_ORIGINS", "")
     if not raw:
@@ -90,16 +109,37 @@ def _load_project_dotenv() -> None:
 def create_app(
     *,
     db_path: Path | None = None,
+    persist_db_path: Path | None = None,
     max_concurrent_jobs: int | None = None,
 ) -> FastAPI:
     _load_project_dotenv()
 
     db_path = db_path or _default_db_path()
+    if persist_db_path is None:
+        persist_db_path = _default_persist_db_path()
     max_concurrent = max_concurrent_jobs or int(
         os.environ.get("TRADINGAGENTS_MAX_CONCURRENT_JOBS", "2")
     )
 
-    app = FastAPI(title="TradingAgents API", version="1")
+    runner = JobRunner(
+        db_path,
+        max_concurrent_jobs=max_concurrent,
+        persist_path=persist_db_path,
+    )
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        # Snapshot loop runs only when persist_path differs from db_path
+        # (Azure deployment case); on local dev it's a no-op.
+        await runner.start_snapshot_task()
+        try:
+            yield
+        finally:
+            await runner.stop_snapshot_task()
+
+    app = FastAPI(title="TradingAgents API", version="1", lifespan=lifespan)
     origins = _allowed_origins()
     # Browsers reject `allow_credentials=True` together with allow_origins=["*"],
     # so credentials are only enabled when CORS is restricted to specific
@@ -113,7 +153,6 @@ def create_app(
         allow_credentials=allow_credentials,
     )
 
-    runner = JobRunner(db_path, max_concurrent_jobs=max_concurrent)
     app.state.runner = runner  # so tests can introspect
 
     @app.get("/healthz")
