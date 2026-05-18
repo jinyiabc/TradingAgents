@@ -147,27 +147,48 @@ def set_current_step(db_path: Path, job_id: str, step: str) -> None:
 
 
 def snapshot_db(src: Path, dst: Path) -> None:
-    """Take a consistent point-in-time copy of the jobs DB via SQLite's
-    backup API.
+    """Take a consistent point-in-time copy of the jobs DB.
 
-    Used by the web service to copy a fast ephemeral DB (e.g. /tmp/) onto a
-    durable but lock-hostile Azure Files SMB share. The backup API is safe
-    to call while writers are active — it takes a B-tree page-level snapshot
-    without blocking ongoing transactions. The destination is a plain file
-    written byte-by-byte, so no fcntl locks are involved on dst.
+    Used by the web service to copy a fast ephemeral DB (e.g. ``/tmp/``)
+    onto a durable but lock-hostile Azure Files SMB share. We do it in two
+    steps so SQLite never touches the SMB destination:
+
+      1. ``sqlite3.backup`` from src to a temp file on src's filesystem.
+         This is the consistent snapshot — backup() is a B-tree page-level
+         copy that doesn't block writers on src.
+      2. ``shutil.copyfile`` of the temp file to dst. Plain byte-wise file
+         I/O — no fcntl locks involved on the SMB target.
 
     Parent of ``dst`` is created if missing.
     """
+    import os
+    import shutil
+    import tempfile
+
     dst.parent.mkdir(parents=True, exist_ok=True)
-    src_conn = sqlite3.connect(src)
+    fd, tmp_path = tempfile.mkstemp(
+        suffix=".sqlite.bak",
+        prefix="jobs-",
+        dir=str(src.parent),
+    )
+    os.close(fd)
+    tmp = Path(tmp_path)
     try:
-        dst_conn = sqlite3.connect(dst)
+        src_conn = sqlite3.connect(src)
         try:
-            src_conn.backup(dst_conn)
+            dst_conn = sqlite3.connect(tmp)
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
         finally:
-            dst_conn.close()
+            src_conn.close()
+        shutil.copyfile(tmp, dst)
     finally:
-        src_conn.close()
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def set_telemetry(

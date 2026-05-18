@@ -127,6 +127,14 @@ class JobRunner:
         self._tasks: set[asyncio.Task[None]] = set()
         self._snapshot_task: asyncio.Task[None] | None = None
 
+        # Visible at default logging level so we can confirm paths in
+        # container logs without flipping global log level.
+        logger.warning(
+            "JobRunner init: db_path=%s persist_path=%s",
+            self.db_path,
+            self.persist_path,
+        )
+
         # Best-effort restore before init_db so a fresh container picks up
         # the last snapshotted state. init_db's idempotent migration handles
         # the case where the snapshot's schema is one revision behind.
@@ -134,7 +142,7 @@ class JobRunner:
             try:
                 self.db_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(self.persist_path, self.db_path)
-                logger.info(
+                logger.warning(
                     "Restored jobs DB from snapshot %s (%d bytes)",
                     self.persist_path,
                     self.persist_path.stat().st_size,
@@ -145,6 +153,12 @@ class JobRunner:
                     self.persist_path,
                     exc_info=True,
                 )
+        elif self.persist_path:
+            logger.warning(
+                "No prior snapshot at %s (exists=%s); starting fresh",
+                self.persist_path,
+                self.persist_path.exists(),
+            )
 
         db.init_db(db_path)
 
@@ -171,9 +185,17 @@ class JobRunner:
     async def start_snapshot_task(self) -> None:
         """Kick off the background snapshot loop. No-op when persist_path is
         unset (local dev) — runtime and snapshot are the same file."""
-        if self.persist_path is None or self._snapshot_task is not None:
+        if self.persist_path is None:
+            logger.warning("start_snapshot_task: no persist_path; not starting loop")
+            return
+        if self._snapshot_task is not None:
             return
         self._snapshot_task = asyncio.create_task(self._snapshot_loop())
+        logger.warning(
+            "start_snapshot_task: loop running, interval=%.0fs, dst=%s",
+            self.snapshot_interval_seconds,
+            self.persist_path,
+        )
 
     async def stop_snapshot_task(self) -> None:
         """Cancel the periodic loop and take one final synchronous snapshot
@@ -193,10 +215,23 @@ class JobRunner:
 
     async def _snapshot_loop(self) -> None:
         assert self.persist_path is not None
+        iteration = 0
         while True:
             try:
                 await asyncio.sleep(self.snapshot_interval_seconds)
                 await asyncio.to_thread(db.snapshot_db, self.db_path, self.persist_path)
+                iteration += 1
+                # Log only the first few so we know the loop is alive without
+                # flooding logs every 30s forever.
+                if iteration <= 3:
+                    sz = self.persist_path.stat().st_size if self.persist_path.exists() else -1
+                    logger.warning(
+                        "snapshot #%d OK: %s -> %s (%d bytes)",
+                        iteration,
+                        self.db_path,
+                        self.persist_path,
+                        sz,
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 — never crash the loop on transient errors
